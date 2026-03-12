@@ -1,10 +1,12 @@
 """Custom exception handler for consistent error envelope responses."""
 
+from typing import Any
+
 from rest_framework import exceptions, status
 from rest_framework.response import Response
 from rest_framework.views import exception_handler as drf_exception_handler
 
-EXCEPTION_MAP = {
+EXCEPTION_MAP: dict[type, tuple[str, int]] = {
     exceptions.ValidationError: ("validation_error", status.HTTP_400_BAD_REQUEST),
     exceptions.AuthenticationFailed: ("authentication_failed", status.HTTP_401_UNAUTHORIZED),
     exceptions.NotAuthenticated: ("not_authenticated", status.HTTP_401_UNAUTHORIZED),
@@ -13,7 +15,7 @@ EXCEPTION_MAP = {
     exceptions.MethodNotAllowed: ("method_not_allowed", status.HTTP_405_METHOD_NOT_ALLOWED),
 }
 
-STATUS_CODE_MAP = {
+STATUS_CODE_MAP: dict[int, str] = {
     400: "validation_error",
     401: "authentication_failed",
     403: "permission_denied",
@@ -22,7 +24,7 @@ STATUS_CODE_MAP = {
 }
 
 
-def api_exception_handler(exc, context) -> Response | None:
+def api_exception_handler(exc: Exception, context: dict[str, Any]) -> Response:
     """Wrap all API errors in a consistent {error: {...}} envelope."""
     response = drf_exception_handler(exc, context)
 

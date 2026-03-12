@@ -1,8 +1,11 @@
 """Views for the photos API."""
 
+from typing import Any
+
 import django_filters.rest_framework
-from django.db.models import Count
-from rest_framework import generics, status, viewsets
+from django.db.models import Count, QuerySet
+from drf_spectacular.utils import extend_schema, inline_serializer
+from rest_framework import generics, serializers, status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.filters import OrderingFilter
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -32,7 +35,8 @@ class RegisterView(generics.CreateAPIView):
     serializer_class = UserRegistrationSerializer
     permission_classes = [AllowAny]
 
-    def create(self, request, *args, **kwargs) -> Response:
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Create a new user account and return user data with JWT token pair."""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
@@ -54,10 +58,16 @@ class RegisterView(generics.CreateAPIView):
 # ── Health ────────────────────────────────────────────────────────────────────
 
 
+@extend_schema(
+    responses=inline_serializer(
+        name="HealthCheck",
+        fields={"status": serializers.CharField()},
+    ),
+)
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def health_check(request: Request) -> Response:
-    """Simple health check endpoint."""
+    """Simple health check endpoint returning {status: ok}."""
     return Response({"status": "ok"})
 
 
@@ -65,7 +75,12 @@ def health_check(request: Request) -> Response:
 
 
 class PhotoViewSet(viewsets.ModelViewSet):
-    """CRUD operations for photos with filtering and ordering."""
+    """CRUD operations for photos with filtering and ordering.
+
+    - List/Retrieve: open to all users.
+    - Create: requires authentication.
+    - Update/Delete: requires authentication and ownership.
+    """
 
     filterset_class = PhotoFilter
     filter_backends = [
@@ -75,21 +90,21 @@ class PhotoViewSet(viewsets.ModelViewSet):
     ordering_fields = ["created_at", "width", "height"]
     ordering = ["-created_at"]
 
-    def get_queryset(self):
+    def get_queryset(self) -> QuerySet[Photo]:
         return (
             Photo.objects.select_related("photographer")
             .prefetch_related("sources")
             .all()
         )
 
-    def get_serializer_class(self):
+    def get_serializer_class(self) -> type:
         if self.action == "retrieve":
             return PhotoDetailSerializer
         if self.action in ("create", "update", "partial_update"):
             return PhotoCreateUpdateSerializer
         return PhotoListSerializer
 
-    def get_permissions(self):
+    def get_permissions(self) -> list:
         if self.action in ("create",):
             return [IsAuthenticated()]
         if self.action in ("update", "partial_update", "destroy"):
@@ -101,16 +116,17 @@ class PhotoViewSet(viewsets.ModelViewSet):
 
 
 class PhotographerViewSet(viewsets.ReadOnlyModelViewSet):
-    """Read-only access to photographers with photo counts."""
+    """Read-only access to photographers with aggregated photo counts."""
 
     serializer_class = PhotographerListSerializer
     permission_classes = [AllowAny]
+    ordering = ["name"]
 
-    def get_queryset(self):
-        return Photographer.objects.annotate(photo_count=Count("photos"))
+    def get_queryset(self) -> QuerySet[Photographer]:
+        return Photographer.objects.annotate(photo_count=Count("photos")).order_by("name")
 
     @action(detail=True, methods=["get"])
-    def photos(self, request: Request, pk=None) -> Response:
+    def photos(self, request: Request, pk: int | None = None) -> Response:
         """Return paginated photos for a specific photographer."""
         photographer = self.get_object()
         photos = (

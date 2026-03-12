@@ -21,9 +21,9 @@ class IngestPhotosCommandTest(TestCase):
 
         call_command("ingest_photos")
 
-        self.assertEqual(Photo.objects.count(), 3)
+        self.assertEqual(Photo.objects.count(), 4)
         self.assertEqual(Photographer.objects.count(), 2)
-        self.assertEqual(PhotoSource.objects.count(), 24)  # 3 photos * 8 sources
+        self.assertEqual(PhotoSource.objects.count(), 32)  # 4 photos * 8 sources
 
         alice = Photographer.objects.get(pexels_id=1001)
         self.assertEqual(alice.name, "Alice")
@@ -31,6 +31,7 @@ class IngestPhotosCommandTest(TestCase):
 
         bob = Photographer.objects.get(pexels_id=1002)
         self.assertEqual(bob.name, "Bob")
+        self.assertEqual(bob.photos.count(), 2)
 
     @patch("photos.management.commands.ingest_photos.Path")
     def test_ingest_idempotent(self, mock_path_cls) -> None:
@@ -40,7 +41,7 @@ class IngestPhotosCommandTest(TestCase):
         call_command("ingest_photos")
         call_command("ingest_photos")
 
-        self.assertEqual(Photo.objects.count(), 3)
+        self.assertEqual(Photo.objects.count(), 4)
         self.assertEqual(Photographer.objects.count(), 2)
 
     @patch("photos.management.commands.ingest_photos.Path")
@@ -59,6 +60,20 @@ class IngestPhotosCommandTest(TestCase):
 
         call_command("ingest_photos")
 
-        self.assertEqual(Photo.objects.count(), 3)
+        self.assertEqual(Photo.objects.count(), 4)
         existing = Photo.objects.get(pexels_id=100)
         self.assertEqual(existing.url, "https://example.com/existing.jpg")
+
+    @patch("photos.management.commands.ingest_photos.Path")
+    def test_ingest_handles_empty_alt_and_strips_names(self, mock_path_cls) -> None:
+        mock_path_cls.return_value.__truediv__ = lambda self, other: FIXTURE_CSV
+        mock_path_cls.return_value.__truediv__.return_value = FIXTURE_CSV
+
+        call_command("ingest_photos")
+
+        empty_alt_photo = Photo.objects.get(pexels_id=400)
+        self.assertEqual(empty_alt_photo.alt, "")
+        self.assertEqual(str(empty_alt_photo), "Photo 400")
+
+        bob = Photographer.objects.get(pexels_id=1002)
+        self.assertEqual(bob.name, "Bob")
