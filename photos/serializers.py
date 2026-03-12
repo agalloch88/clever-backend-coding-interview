@@ -124,7 +124,7 @@ class PhotoCreateUpdateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Photo
-        fields = ["width", "height", "alt", "url", "avg_color"]
+        fields = ["pexels_id", "photographer", "width", "height", "alt", "url", "avg_color"]
 
     def validate_width(self, value: int) -> int:
         if value <= 0:
