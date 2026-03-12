@@ -1,67 +1,98 @@
-# Clever's Backend Engineering Challenge
-👋 Hello!, Hola!, Witam!
+# Photo Management API
 
-Thank you for taking the time to interview with Clever. This coding challenge is designed to see how you approach backend architecture, API design, and engineering best practices. We don't want this to take too much of your time (and if it does, certainly let us know!).
+RESTful API for managing a photo library, built with Django REST Framework. JWT authentication, photo CRUD with ownership-based authorization, photographer browsing, filtering and search, and auto-generated OpenAPI docs.
 
-## Overview
-Build a RESTful API for a photo management service using the provided photo dataset. This API should be production-ready, well-documented, and demonstrate your understanding of backend architecture, API design, and software engineering best practices.
+## Quick Start
 
-## Core Requirements
-The baseline functionality we expect:
-- Ingest and store the provided photo data (photos.csv)
-- Implement user authentication and authorization
-- Provide API endpoints for managing and accessing photos
-- Include comprehensive API documentation
-- Write tests for your implementation
+```bash
+git clone https://github.com/YOUR_USERNAME/backend-coding-interview
+cd backend-coding-interview
 
-## What We Want to See
-This is intentionally open-ended. We want to see what **you** think makes a great, production-ready API. Consider implementing features and patterns you'd expect in a real-world system. Choose what you think is most important and implement thoughtfully. Quality over quantity.
+python -m venv venv
+source venv/bin/activate
 
-## Technology Choices
-- **Backend Framework**: We primarily use Django and Ruby on Rails, but you're welcome to use whatever language and framework you're most proficient in (Python, Ruby, Node.js, Go, Java, etc.)
-- **Database**: Your choice - pick what makes sense for the use case
-- **Documentation**: Choose the format that best communicates your API design
-- **Additional Tools**: Use whatever tools and libraries you believe are appropriate
+pip install -r requirements.txt
+cp .env.example .env          # SQLite works out of the box, edit for PostgreSQL
+python manage.py migrate
+python manage.py ingest_photos # loads the Pexels dataset
+python manage.py runserver
+```
 
-## Data Source
-We've provided `photos.csv` with photo data from Pexels. Each row represents a photo with details like dimensions, photographer information, various image sizes, and descriptions. Use this as your data source.
+Visit [http://localhost:8000/api/docs/](http://localhost:8000/api/docs/) for the interactive Swagger UI.
 
-## Deliverables
-Your submission should include:
+## API Endpoints
 
-1. **Working API** with clear setup instructions
-2. **API Documentation** explaining available endpoints and how to use them
-3. **Tests** demonstrating your testing approach
-4. **README** that explains:
-   - Architecture decisions and trade-offs you made
-   - What features you implemented and why you prioritized them
-   - How to run the application and tests
-   - What you would add/change with more time
-   - Any assumptions you made
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/api/auth/register/` | No | Create account, returns JWT tokens |
+| POST | `/api/auth/login/` | No | Get JWT tokens |
+| POST | `/api/auth/refresh/` | No | Refresh access token |
+| GET | `/api/photos/` | No | List photos (paginated, filterable) |
+| GET | `/api/photos/:id/` | No | Photo detail with all size variants |
+| POST | `/api/photos/` | Yes | Create a new photo |
+| PUT/PATCH | `/api/photos/:id/` | Yes (owner) | Update your photo |
+| DELETE | `/api/photos/:id/` | Yes (owner) | Delete your photo |
+| GET | `/api/photographers/` | No | List photographers with photo counts |
+| GET | `/api/photographers/:id/` | No | Photographer detail |
+| GET | `/api/photographers/:id/photos/` | No | Photos by photographer |
+| GET | `/api/health/` | No | Health check |
+| GET | `/api/docs/` | No | Interactive Swagger UI |
+| GET | `/api/schema/` | No | Raw OpenAPI schema |
 
-## Evaluation Criteria
-We'll be assessing:
-- **API Design**: RESTful principles, resource modeling, endpoint design, consistency
-- **Code Quality**: Organization, patterns, maintainability, readability
-- **Database Design**: Schema design, relationships, indexing strategy
-- **Security**: Authentication implementation, authorization, input validation
-- **Error Handling**: Meaningful error messages, proper HTTP status codes, edge cases
-- **Testing**: Test coverage, test quality, testing strategy
-- **Documentation**: API docs, code documentation, setup instructions, decision rationale
+## Filtering & Search
 
-## Time Expectation
-We expect this to take **2-6 hours** of focused work. If you find yourself spending significantly more time, please document what you would do next rather than trying to complete everything. We value your time and want to see how you prioritize.
+```
+GET /api/photos/?photographer_id=123
+GET /api/photos/?min_width=1920&max_width=4000
+GET /api/photos/?min_height=1080
+GET /api/photos/?search=beach
+GET /api/photos/?ordering=-created_at
+GET /api/photos/?ordering=width
+```
 
-## Submission
-- Fork this repo and commit your code there
-- Open a PR from your fork back to the main repo
-- Add the following users as reviewers so we can assess your work:
-  - James Crain (@imjamescrain)
-  - Jimmy Lien (@jlien)
-  - Nick Clucas (@nickcluc)
-  - Ryan McCue (@rymccue)
+All filters can be combined. Pagination is included by default (20 per page).
 
-## Final Thoughts
-This challenge is designed to be open-ended because we want to understand how you think about building systems, not just whether you can follow a specification. Show us your engineering judgment, your decision-making process, and what you believe "done" really means.
+## Architecture Decisions
 
-**Any questions?** Send emails to <a href="mailto:ryan@movewithclever.com">ryan@movewithclever.com</a>. Good luck!
+**Django + DRF.** The challenge mentioned Django as a primary framework at Clever, so I went with what matches the production stack. DRF gives you a mature REST toolkit with built-in serialization, pagination, permissions, and browsable API out of the box.
+
+**Normalized schema over flat JSON.** Photographers and photo size variants live in their own tables (Photographer, Photo, PhotoSource) instead of being stored as JSON blobs on a single Photo model. This gives you referential integrity, efficient querying (e.g., "all photos by this photographer"), and no data duplication. The trade-off is more joins on reads, but `select_related` and `prefetch_related` handle that cleanly.
+
+**JWT over session auth.** For a standalone API that could serve a mobile client, SPA, or third-party integration, stateless auth makes more sense than server-side sessions. simplejwt handles token issuance and refresh without needing any session storage.
+
+**Ownership-based permissions.** Any authenticated user can create photos. Only the owner can update or delete. This is handled through a custom `IsOwnerOrReadOnly` permission class, keeping the authorization logic clean, testable, and separate from the view logic.
+
+**Consistent error envelope.** Every error response follows the same structure: `{ "error": { "code", "message", "status", "details" } }`. This makes client-side error handling predictable regardless of which endpoint throws. Validation errors include field-level detail, auth errors are clearly typed.
+
+**Idempotent CSV ingestion.** The `ingest_photos` management command checks for existing `pexels_id` values before inserting, so you can safely run it multiple times without duplicating data. It wraps everything in a transaction and handles row-level errors gracefully.
+
+**SQLite fallback for local dev.** PostgreSQL is the production choice for relational data with clear foreign key relationships, but requiring a running Postgres instance just to evaluate a take-home adds friction. The app reads `DATABASE_URL` from the environment and falls back to SQLite if it's not set.
+
+## What I'd Add With More Time
+
+- **Rate limiting** via DRF throttling to prevent API abuse
+- **Redis caching** for popular photo listings and photographer pages
+- **Docker Compose** for one-command setup with PostgreSQL
+- **CI/CD pipeline** (GitHub Actions) running tests and linting on every push
+- **Role-based permissions** so admins can manage all photos, not just their own
+- **Background task queue** (Celery + Redis) for bulk import operations on larger datasets
+- **Full-text search** with PostgreSQL trigram indexes for better alt text matching
+- **Cursor-based pagination** for more efficient deep pagination on large result sets
+- **API versioning** (`/api/v1/`) for backward compatibility as the API evolves
+- **Image CDN integration** for serving optimized images based on client device
+
+## Assumptions
+
+- `photos.csv` is a one-time seed dataset, not a streaming source
+- Photographers are metadata from Pexels, not user accounts in the system
+- All authenticated users can upload new photos (no admin approval flow)
+- Photo URLs point to the external Pexels CDN. We store URLs, not image files.
+- The `avg_color` field is informational metadata, not validated as a real hex color
+
+## Running Tests
+
+```bash
+python manage.py test photos -v2
+```
+
+~25 tests covering models, authentication, photo CRUD, photographer endpoints, filtering, and ingestion idempotency.
